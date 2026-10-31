@@ -1,0 +1,5 @@
+openai
+langchain-openai
+langchain_text_splitters
+pypdf
+numpy
