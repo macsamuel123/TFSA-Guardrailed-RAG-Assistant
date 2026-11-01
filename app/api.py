@@ -7,8 +7,8 @@ app =FastAPI(title="TFSA Assistant")
 class AskRequest(BaseModel):
     question :str
 
-@app.post("/add")
-def add(request: AskRequest):
+@app.post("/ask")
+def ask(request: AskRequest):
     return {"result":orchestrate(request.question)}
 
 @app.get("/health")
