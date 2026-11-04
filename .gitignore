@@ -1,0 +1,5 @@
+data/tfsa_store.json
+__pycache__/
+.env
+*.pyc
+.pytest_cache/
