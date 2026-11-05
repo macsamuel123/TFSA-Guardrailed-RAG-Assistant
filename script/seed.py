@@ -133,34 +133,74 @@ def seed_products(connection):
     with connection.cursor() as cursor:
         for name, account_type, interest_rate, monthly_fee, min_balance, description in PRODUCTS:
             cursor.execute(
-                "INSERT INTO product_catalog(name, account_type, interest_rate, monthly_fee, min_balance, description)"
-                "VALUES (%s,%s,%s,%s,%s,%s)"
+                "INSERT INTO product_catalog(name, account_type, interest_rate, monthly_fee, min_balance, description) "
+                "VALUES (%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT(name) DO NOTHING",
                 (name, account_type, interest_rate, monthly_fee, min_balance, description),
             ) 
 
 def seed_penalties(connection):
     with connection.cursor() as cursor:
-        for account_type, rule, rate, unit, source, page in PENALTIES:
-            cursor.execute("INSERT INTO penalty_rates (account_type, rule, rate, unit, source, page )"
-            "VALUES (%s,%s,%s,%s,%s)"
-            "ON CONFLICT(account_type, rule) DO NOTHING",
-            (account_type, rule, rate, unit, source, page )
+        for account_type, rule, rate, unit, source, source_page in PENALTIES:
+            cursor.execute(
+                "INSERT INTO penalty_rates (account_type, rule, rate, unit, source, source_page) "
+                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (account_type, rule) DO NOTHING",
+                (account_type, rule, rate, unit, source, source_page),
             )
-
 def seed_members(connection):
     with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM members WHERE last_name = 'Testcase'")
+        existing = cursor.fetchone()[0]
+        if existing > 0:
+            print(f"{existing} test members already exist, skipping")
+            return
         for m in MEMBERS:
             cursor.execute(
-                "INSERT INTO members(first_name, last_name, birth_year, province, resident_since)"
-                "VALUES (%s,%s,%s,%s,%s)"
+                "INSERT INTO members(first_name, last_name, birth_year, province, resident_since) "
+                "VALUES (%s,%s,%s,%s,%s) "
                 "RETURNING member_id",
                 ( m["first_name"], m["last_name"], m["birth_year"], m["province"], m["resident_since"])
             )
-        member_id=cursor,fetchone()[0]
+            member_id=cursor.fetchone()[0]
+
+            cursor.execute(
+                "SELECT product_id FROM product_catalog WHERE name = %s",
+                (m["product"],),
+            )
+            product_id = cursor.fetchone()[0]
+
+            cursor.execute(
+                "INSERT INTO accounts (member_id, product_id, account_type, opened_on, balance) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "RETURNING account_id",
+                (member_id, product_id, "TFSA", m["opened_on"], m["balance"]),
+            )
+            account_id = cursor.fetchone()[0]
+                        # 1. Automatic yearly contributions (for members who maxed out)
+            if m["max_through"] is not None:
+                first_year = max(2009, m["birth_year"] + 18, m["resident_since"])
+                for year, limit in TFSA_LIMITS:
+                    if first_year <= year <= m["max_through"]:
+                        cursor.execute(
+                            "INSERT INTO transactions (account_id, txn_date, txn_type, amount) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (account_id, f"{year}-01-15", "contribution", limit),
+                        )
+
+            # 2. The member's extra transactions
+            for txn_date, txn_type, amount in m["transactions"]:
+                cursor.execute(
+                    "INSERT INTO transactions (account_id, txn_date, txn_type, amount) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (account_id, txn_date, txn_type, amount),
+                )
+
 if __name__ == "__main__":
     with get_connection() as conn:
         create_tables(conn)
         seed_limits(conn)
         seed_penalties(conn)
         seed_products(conn)
+        seed_members(conn)
+
